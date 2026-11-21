@@ -132,7 +132,7 @@ class _CustomCabinetDesignerScreenState
   double _pitchRad = 0.36;
   double _zoom3D = 1.0;
   Offset? _last3DPanPos;
-  Offset? _3DPanDownPos;
+  Offset? _pan3dDownPos;
   final List<_InteractiveHit3D> _interactive3DHits = [];
 
   // حالة فتح/قفل الضلف والأدراج + ألوان الأجزاء المستقلة في الـ 3D
@@ -1487,7 +1487,7 @@ class _CustomCabinetDesignerScreenState
                                   }
                                 },
                                 onPanStart: (details) {
-                                  _3DPanDownPos = details.localPosition;
+                                  _pan3dDownPos = details.localPosition;
                                   _last3DPanPos = details.localPosition;
                                 },
                                 onPanUpdate: (details) {
@@ -1505,9 +1505,9 @@ class _CustomCabinetDesignerScreenState
                                   });
                                 },
                                 onPanEnd: (details) {
-                                  final movedDist = (_3DPanDownPos != null)
+                                    final movedDist = (_pan3dDownPos != null)
                                       ? (details.localPosition -
-                                              _3DPanDownPos!)
+                                          _pan3dDownPos!)
                                           .distance
                                       : 0.0;
                                   if (movedDist < 6.0) {
@@ -1524,7 +1524,7 @@ class _CustomCabinetDesignerScreenState
                                     }
                                   }
                                   _last3DPanPos = null;
-                                  _3DPanDownPos = null;
+                                  _pan3dDownPos = null;
                                 },
                                 child: CustomPaint(
                                   size: Size(constraints.maxWidth,

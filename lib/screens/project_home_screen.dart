@@ -1,3 +1,5 @@
+// ignore_for_file: unnecessary_underscores, deprecated_member_use
+
 import 'package:flutter/material.dart';
 import '../models/unit_model.dart';
 import '../widgets/isometric_unit_painter.dart';

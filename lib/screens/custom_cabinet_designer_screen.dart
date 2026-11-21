@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../models/custom_cabinet_node.dart';
+import '../widgets/cabinet_color_picker_panel.dart';
 
 class _ZoneHitBox {
   final CabinetZoneNode node;
@@ -44,7 +45,11 @@ class _Box3D {
   final double d;
   final Color baseColor;
   final Color strokeColor;
+  final String colorKey;
+  final String partLabel;
+  final int layerPriority; // 0: هيكل/ظهر، 1: داخلي/أرفف، 2: ضلف/أدراج، 3: قطع حرة
   final FreeBoardPiece? freeBoard;
+  final String? interactiveKey;
 
   _Box3D({
     required this.x,
@@ -55,35 +60,53 @@ class _Box3D {
     required this.d,
     required this.baseColor,
     required this.strokeColor,
+    required this.colorKey,
+    required this.partLabel,
+    this.layerPriority = 0,
     this.freeBoard,
+    this.interactiveKey,
   });
 }
 
 class _Face3D {
   final List<Offset> points;
   final double depthFromCamera;
+  final int layerPriority;
   final Color fillColor;
   final Color strokeColor;
   final double strokeWidth;
+  final String colorKey;
+  final String partLabel;
   final FreeBoardPiece? freeBoard;
+  final String? interactiveKey;
 
   _Face3D({
     required this.points,
     required this.depthFromCamera,
+    required this.layerPriority,
     required this.fillColor,
     required this.strokeColor,
     required this.strokeWidth,
+    required this.colorKey,
+    required this.partLabel,
     this.freeBoard,
+    this.interactiveKey,
   });
 }
 
-class _FreeBoard3DHit {
-  final FreeBoardPiece board;
+class _InteractiveHit3D {
+  final String key;
+  final String colorKey;
+  final String partLabel;
+  final FreeBoardPiece? freeBoard;
   final List<Offset> polygon;
   final double depthFromCamera;
 
-  _FreeBoard3DHit({
-    required this.board,
+  _InteractiveHit3D({
+    required this.key,
+    required this.colorKey,
+    required this.partLabel,
+    this.freeBoard,
     required this.polygon,
     required this.depthFromCamera,
   });
@@ -103,13 +126,23 @@ class _CustomCabinetDesignerScreenState
   late CabinetZoneNode _selectedNode;
   _DividerHitBox? _draggingDivider;
 
-  // وضع العرض: 2D أو 3D وزوايا الدوران والتكبير
+  // وضع العرض: 2D أو 3D وزوايا الدوران والتكبير والتحكم التفاعلي
   bool _is3DView = false;
   double _yawRad = 0.55;
   double _pitchRad = 0.36;
   double _zoom3D = 1.0;
   Offset? _last3DPanPos;
-  final List<_FreeBoard3DHit> _freeBoard3DHits = [];
+  Offset? _3DPanDownPos;
+  final List<_InteractiveHit3D> _interactive3DHits = [];
+
+  // حالة فتح/قفل الضلف والأدراج + ألوان الأجزاء المستقلة في الـ 3D
+  final Set<String> _openedKeys = {};
+  double _carcassDepthCm = 52.0;
+  double _frontThicknessCm = 1.8;
+  String _selected3DColorKey = 'carcass';
+  String _selected3DPartLabel = 'الهيكل الخارجي والوزرة';
+
+  late Map<String, Color> _partColors3D;
 
   // أوضاع الرسم الحر والسنترة والتحريك والمحاذاة الذكية
   bool _drawFreeMode = false;
@@ -141,12 +174,35 @@ class _CustomCabinetDesignerScreenState
   late TextEditingController _hCtrl;
   late TextEditingController _dCtrl;
   late TextEditingController _plinthCtrl;
+  late TextEditingController _carcassDepthCtrl;
+  late TextEditingController _boardThickCtrl;
+  late TextEditingController _frontThickCtrl;
 
   @override
   void initState() {
     super.initState();
     _selectedNode = _findFirstLeaf(_design.root);
+    _carcassDepthCm = math.max(20.0, _design.depth - 8.0);
+    _frontThicknessCm = _design.boardThickness;
+    _partColors3D = _defaultColorsMap();
     _syncControllers();
+  }
+
+  Map<String, Color> _defaultColorsMap() {
+    return {
+      'carcass': const Color(0xFFE2E8F0),
+      'interior': const Color(0xFFCBD5E1),
+      'back': const Color(0xFF94A3B8),
+      'front': const Color(0xFFD6A86C),
+      'free_default': const Color(0xFFF59E0B),
+    };
+  }
+
+  Color _colorForKey(String key) {
+    return _partColors3D[key] ??
+        (key.startsWith('free_')
+            ? (_partColors3D['free_default'] ?? const Color(0xFFF59E0B))
+            : const Color(0xFFE2E8F0));
   }
 
   void _syncControllers() {
@@ -156,6 +212,12 @@ class _CustomCabinetDesignerScreenState
     _dCtrl = TextEditingController(text: _design.depth.toStringAsFixed(0));
     _plinthCtrl =
         TextEditingController(text: _design.plinthHeight.toStringAsFixed(0));
+    _carcassDepthCtrl =
+        TextEditingController(text: _carcassDepthCm.toStringAsFixed(1));
+    _boardThickCtrl =
+        TextEditingController(text: _design.boardThickness.toStringAsFixed(1));
+    _frontThickCtrl =
+        TextEditingController(text: _frontThicknessCm.toStringAsFixed(1));
   }
 
   @override
@@ -165,6 +227,9 @@ class _CustomCabinetDesignerScreenState
     _hCtrl.dispose();
     _dCtrl.dispose();
     _plinthCtrl.dispose();
+    _carcassDepthCtrl.dispose();
+    _boardThickCtrl.dispose();
+    _frontThickCtrl.dispose();
     super.dispose();
   }
 
@@ -178,6 +243,10 @@ class _CustomCabinetDesignerScreenState
       _design = preset;
       _selectedNode = _findFirstLeaf(_design.root);
       _selectedFreeBoard = null;
+      _openedKeys.clear();
+      _selected3DColorKey = 'carcass';
+      _selected3DPartLabel = 'الهيكل الخارجي والوزرة';
+      _carcassDepthCm = math.max(20.0, _design.depth - 8.0);
       _syncControllers();
     });
   }
@@ -200,21 +269,39 @@ class _CustomCabinetDesignerScreenState
       final xi = poly[i].dx, yi = poly[i].dy;
       final xj = poly[j].dx, yj = poly[j].dy;
       final intersect = ((yi > pt.dy) != (yj > pt.dy)) &&
-          (pt.dx < (xj - xi) * (pt.dy - yi) / ((yj - yi) == 0 ? 1e-9 : (yj - yi)) + xi);
+          (pt.dx <
+              (xj - xi) *
+                      (pt.dy - yi) /
+                      ((yj - yi) == 0 ? 1e-9 : (yj - yi)) +
+                  xi);
       if (intersect) inside = !inside;
     }
     return inside;
   }
 
-  FreeBoardPiece? _hitTestFreeBoard3D(Offset pos) {
-    final sorted = List<_FreeBoard3DHit>.from(_freeBoard3DHits)
+  _InteractiveHit3D? _hitTestInteractive3D(Offset pos) {
+    final sorted = List<_InteractiveHit3D>.from(_interactive3DHits)
       ..sort((a, b) => b.depthFromCamera.compareTo(a.depthFromCamera));
     for (final item in sorted) {
       if (_pointInPolygon(pos, item.polygon)) {
-        return item.board;
+        return item;
       }
     }
     return null;
+  }
+
+  void _toggleOpenCloseAll3D() {
+    setState(() {
+      if (_openedKeys.isNotEmpty) {
+        _openedKeys.clear();
+      } else {
+        for (final hit in _interactive3DHits) {
+          if (hit.key.startsWith("door_") || hit.key.startsWith("drawer_")) {
+            _openedKeys.add(hit.key);
+          }
+        }
+      }
+    });
   }
 
   /// محاذاة ذكية مع إطار الوحدة ومنتصفها وحواف القطع الحرة الأخرى
@@ -423,8 +510,7 @@ class _CustomCabinetDesignerScreenState
               final double startY = double.tryParse(yCtrl.text) ?? initY;
 
               final double totalGaps = gap * (count - 1);
-              final double eachH =
-                  math.max(4.0, (totalH - totalGaps) / count);
+              final double eachH = math.max(4.0, (totalH - totalGaps) / count);
 
               FreeBoardPiece? lastCreated;
               setState(() {
@@ -438,7 +524,7 @@ class _CustomCabinetDesignerScreenState
                     y: double.parse(pieceY.toStringAsFixed(1)),
                     width: double.parse(w.toStringAsFixed(1)),
                     height: double.parse(eachH.toStringAsFixed(1)),
-                    thickness: _design.boardThickness,
+                    thickness: _frontThicknessCm,
                     hasGrain: true,
                     edgeL1: true,
                     edgeL2: true,
@@ -713,6 +799,8 @@ class _CustomCabinetDesignerScreenState
     setState(() {
       _design.freeBoards.add(newBoard);
       _selectedFreeBoard = newBoard;
+      _selected3DColorKey = 'free_${newBoard.id}';
+      _selected3DPartLabel = newBoard.name;
       _drawFreeMode = false;
       _freeDrawStart = null;
       _freeDrawCurrent = null;
@@ -722,11 +810,12 @@ class _CustomCabinetDesignerScreenState
   @override
   Widget build(BuildContext context) {
     final generatedParts = _design.generateCutList(1);
+    final activeColor = _colorForKey(_selected3DColorKey);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-            "مصمم الوحدات التفاعلي الذكي (2D / 3D + رسم حر + محاذاة)"),
+            "مصمم الوحدات التفاعلي الذكي (2D / 3D سوليد + منع تداخل + عجلة ألوان)"),
         actions: [
           TextButton.icon(
             onPressed: () =>
@@ -778,7 +867,7 @@ class _CustomCabinetDesignerScreenState
         children: [
           // 1. اللوحة الجانبية
           Container(
-            width: 330,
+            width: 355,
             color: const Color(0xFF0F172A),
             padding: const EdgeInsets.all(16),
             child: SingleChildScrollView(
@@ -827,17 +916,68 @@ class _CustomCabinetDesignerScreenState
                               style: TextStyle(
                                   fontSize: 11, color: Color(0xFF2DD4BF))),
                         ),
-                        Text(
-                          "زوم: ${(_zoom3D * 100).toInt()}%",
-                          style: const TextStyle(
-                              fontSize: 11, color: Colors.white60),
+                        ElevatedButton.icon(
+                          onPressed: _toggleOpenCloseAll3D,
+                          icon: Icon(
+                              _openedKeys.isNotEmpty
+                                  ? Icons.door_back_door_outlined
+                                  : Icons.sensor_door_outlined,
+                              size: 15,
+                              color: Colors.black),
+                          label: Text(
+                            _openedKeys.isNotEmpty
+                                ? "قفل ضلف/أدراج"
+                                : "فتح ضلف/أدراج",
+                            style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.black,
+                                fontWeight: FontWeight.bold),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2DD4BF),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            minimumSize: Size.zero,
+                          ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 10),
+                    CabinetColorPickerPanel(
+                      partLabel: _selected3DPartLabel,
+                      currentColor: activeColor,
+                      onColorChanged: (newCol) {
+                        setState(() {
+                          _partColors3D[_selected3DColorKey] = newCol;
+                        });
+                      },
+                      onResetDefault: () {
+                        setState(() {
+                          _partColors3D = _defaultColorsMap();
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _quickPartColorTag("الهيكل", "carcass"),
+                        _quickPartColorTag("الجسم الداخلي", "interior"),
+                        _quickPartColorTag("الظهر", "back"),
+                        _quickPartColorTag("الضلف/أدراج", "front"),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      "زوم البكرة: ${(_zoom3D * 100).toInt()}%  •  مفتوح: ${_openedKeys.length} عنصر",
+                      style:
+                          const TextStyle(fontSize: 11, color: Colors.white60),
                     ),
                   ],
 
                   const Divider(height: 20, color: Colors.white12),
-                  const Text("الأبعاد الكلية للوحدة",
+                  const Text("خيارات المقاسات والهيكل (Component Options)",
                       style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF2DD4BF))),
@@ -880,23 +1020,73 @@ class _CustomCabinetDesignerScreenState
                         child: TextField(
                           controller: _dCtrl,
                           keyboardType: TextInputType.number,
-                          onChanged: (v) => setState(() => _design.depth =
-                              math.max(20,
-                                  double.tryParse(v) ?? _design.depth)),
-                          decoration: _inputDeco("العمق (سم)"),
+                          onChanged: (v) => setState(() {
+                            _design.depth = math.max(
+                                20, double.tryParse(v) ?? _design.depth);
+                            _carcassDepthCm = math.min(
+                                _carcassDepthCm,
+                                math.max(15.0, _design.depth - 2.0));
+                            _carcassDepthCtrl.text =
+                                _carcassDepthCm.toStringAsFixed(1);
+                          }),
+                          decoration: _inputDeco("العمق الكلي (سم)"),
                         ),
                       ),
                       const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _carcassDepthCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          onChanged: (v) => setState(() {
+                            _carcassDepthCm = (double.tryParse(v) ??
+                                    _carcassDepthCm)
+                                .clamp(15.0, math.max(20.0, _design.depth));
+                          }),
+                          decoration: _inputDeco("عمق الهيكل (سم)"),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
                       Expanded(
                         child: TextField(
                           controller: _plinthCtrl,
                           keyboardType: TextInputType.number,
                           onChanged: (v) => setState(() => _design.plinthHeight =
                               math.max(0, double.tryParse(v) ?? 0)),
-                          decoration: _inputDeco("الوزرة (سم)"),
+                          decoration: _inputDeco("ارتفاع القاعدة/الوزرة"),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _boardThickCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                              decimal: true),
+                          onChanged: (v) => setState(() {
+                            _design.boardThickness = math.max(
+                                0.6,
+                                double.tryParse(v) ??
+                                    _design.boardThickness);
+                          }),
+                          decoration: _inputDeco("سماكة الهيكل (سم)"),
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _frontThickCtrl,
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    onChanged: (v) => setState(() {
+                      _frontThicknessCm = math.max(
+                          0.6, double.tryParse(v) ?? _frontThicknessCm);
+                    }),
+                    decoration: _inputDeco("سماكة الضلفة / الدرج (سم)"),
                   ),
                   SwitchListTile(
                     title: const Text("إضافة ظهر أبلكاش",
@@ -908,7 +1098,7 @@ class _CustomCabinetDesignerScreenState
                   ),
 
                   const Divider(height: 22, color: Colors.white12),
-                  const Text("رسم حر ولوحات مستقلة (تخانة 1.8 سم)",
+                  const Text("رسم حر ولوحات مستقلة",
                       style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.amberAccent)),
@@ -1226,15 +1416,13 @@ class _CustomCabinetDesignerScreenState
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                            _is3DView
-                                ? Icons.view_in_ar
-                                : Icons.touch_app,
+                            _is3DView ? Icons.view_in_ar : Icons.touch_app,
                             color: const Color(0xFF2DD4BF),
                             size: 18),
                         const SizedBox(width: 8),
                         Text(
                           _is3DView
-                              ? "اسحب للدوران • بكرة الماوس للتكبير/التصغير • اضغط على قطعة/قرصة لتحديدها • اضغط مرتين لتعديل مقاسها"
+                              ? "سوليد 100% ومنع تداخل صارم • اضغط لتحديد اللون • اسحب للدوران • بكرة الماوس للتكبير • ضغطتين لفتح/قفل"
                               : "محاذاة تلقائية مع الإطار والقطع الأخرى • سنترة في المنتصف • رص وشوش أدراج يدوي",
                           style: const TextStyle(
                               fontSize: 12, color: Colors.white70),
@@ -1263,32 +1451,43 @@ class _CustomCabinetDesignerScreenState
                             return Listener(
                               onPointerSignal: (event) {
                                 if (event is PointerScrollEvent) {
-                                  final delta = event.scrollDelta.dy > 0
-                                      ? -0.08
-                                      : 0.08;
+                                  final delta =
+                                      event.scrollDelta.dy > 0 ? -0.08 : 0.08;
                                   setState(() {
-                                    _zoom3D = (_zoom3D + delta)
-                                        .clamp(0.5, 2.2);
+                                    _zoom3D =
+                                        (_zoom3D + delta).clamp(0.5, 2.2);
                                   });
                                 }
                               },
                               child: GestureDetector(
-                                onTapDown: (details) {
-                                  final hitBoard =
-                                      _hitTestFreeBoard3D(details.localPosition);
-                                  if (hitBoard != null) {
-                                    setState(() => _selectedFreeBoard = hitBoard);
-                                  }
-                                },
                                 onDoubleTapDown: (details) {
-                                  final hitBoard =
-                                      _hitTestFreeBoard3D(details.localPosition);
-                                  if (hitBoard != null) {
-                                    setState(() => _selectedFreeBoard = hitBoard);
-                                    _editFreeBoardDialog(hitBoard);
+                                  final hit = _hitTestInteractive3D(
+                                      details.localPosition);
+                                  if (hit == null) return;
+                                  setState(() {
+                                    _selected3DColorKey = hit.colorKey;
+                                    _selected3DPartLabel = hit.partLabel;
+                                    if (hit.freeBoard != null) {
+                                      _selectedFreeBoard = hit.freeBoard;
+                                    }
+                                    if (hit.key.startsWith("door_") ||
+                                        hit.key.startsWith("drawer_")) {
+                                      if (_openedKeys.contains(hit.key)) {
+                                        _openedKeys.remove(hit.key);
+                                      } else {
+                                        _openedKeys.add(hit.key);
+                                      }
+                                    }
+                                  });
+                                  final board = hit.freeBoard;
+                                  if (board != null &&
+                                      !hit.key.startsWith("door_") &&
+                                      !hit.key.startsWith("drawer_")) {
+                                    _editFreeBoardDialog(board);
                                   }
                                 },
                                 onPanStart: (details) {
+                                  _3DPanDownPos = details.localPosition;
                                   _last3DPanPos = details.localPosition;
                                 },
                                 onPanUpdate: (details) {
@@ -1299,13 +1498,34 @@ class _CustomCabinetDesignerScreenState
                                       _last3DPanPos!.dy;
                                   _last3DPanPos = details.localPosition;
                                   setState(() {
-                                    _yawRad = (_yawRad + dx * 0.01)
-                                        .clamp(-1.5, 1.5);
+                                    _yawRad =
+                                        (_yawRad + dx * 0.01).clamp(-1.5, 1.5);
                                     _pitchRad = (_pitchRad + dy * 0.01)
                                         .clamp(-1.2, 1.3);
                                   });
                                 },
-                                onPanEnd: (_) => _last3DPanPos = null,
+                                onPanEnd: (details) {
+                                  final movedDist = (_3DPanDownPos != null)
+                                      ? (details.localPosition -
+                                              _3DPanDownPos!)
+                                          .distance
+                                      : 0.0;
+                                  if (movedDist < 6.0) {
+                                    final hit = _hitTestInteractive3D(
+                                        details.localPosition);
+                                    if (hit != null) {
+                                      setState(() {
+                                        _selected3DColorKey = hit.colorKey;
+                                        _selected3DPartLabel = hit.partLabel;
+                                        if (hit.freeBoard != null) {
+                                          _selectedFreeBoard = hit.freeBoard;
+                                        }
+                                      });
+                                    }
+                                  }
+                                  _last3DPanPos = null;
+                                  _3DPanDownPos = null;
+                                },
                                 child: CustomPaint(
                                   size: Size(constraints.maxWidth,
                                       constraints.maxHeight),
@@ -1314,8 +1534,13 @@ class _CustomCabinetDesignerScreenState
                                     yaw: _yawRad,
                                     pitch: _pitchRad,
                                     zoom: _zoom3D,
+                                    carcassDepthCm: _carcassDepthCm,
+                                    frontThicknessCm: _frontThicknessCm,
+                                    partColors: _partColors3D,
+                                    selectedColorKey: _selected3DColorKey,
+                                    openedKeys: _openedKeys,
                                     selectedFreeBoard: _selectedFreeBoard,
-                                    outFreeBoardHits: _freeBoard3DHits,
+                                    outInteractiveHits: _interactive3DHits,
                                   ),
                                 ),
                               ),
@@ -1494,6 +1719,26 @@ class _CustomCabinetDesignerScreenState
     );
   }
 
+  Widget _quickPartColorTag(String title, String key) {
+    final isSel = _selected3DColorKey == key;
+    return ChoiceChip(
+      label: Text(title, style: const TextStyle(fontSize: 10.5)),
+      selected: isSel,
+      selectedColor: const Color(0xFF14B8A6),
+      backgroundColor: const Color(0xFF0F172A),
+      labelStyle: TextStyle(
+        color: isSel ? Colors.black : Colors.white70,
+        fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+      ),
+      onSelected: (_) {
+        setState(() {
+          _selected3DColorKey = key;
+          _selected3DPartLabel = title;
+        });
+      },
+    );
+  }
+
   Widget _kindChip(String label, FreeBoardKind kind) {
     final bool selected = _newFreeKind == kind;
     return ChoiceChip(
@@ -1541,42 +1786,62 @@ class _CustomCabinetDesignerScreenState
     );
   }
 }
-
-/// رسام 3D بفرز الأوجه حسب العمق لتجنب التداخل عند الدوران
+/// رسام 3D خام ومصمت (Raw Solid) مع منع تداخل هندسي صارم للخانات والأرفف والأدراج
 class _Cabinet3DPainter extends CustomPainter {
   final CustomCabinetDesign design;
   final double yaw;
   final double pitch;
   final double zoom;
+  final double carcassDepthCm;
+  final double frontThicknessCm;
+  final Map<String, Color> partColors;
+  final String selectedColorKey;
+  final Set<String> openedKeys;
   final FreeBoardPiece? selectedFreeBoard;
-  final List<_FreeBoard3DHit> outFreeBoardHits;
+  final List<_InteractiveHit3D> outInteractiveHits;
 
   _Cabinet3DPainter({
     required this.design,
     required this.yaw,
     required this.pitch,
     required this.zoom,
+    required this.carcassDepthCm,
+    required this.frontThicknessCm,
+    required this.partColors,
+    required this.selectedColorKey,
+    required this.openedKeys,
     required this.selectedFreeBoard,
-    required this.outFreeBoardHits,
+    required this.outInteractiveHits,
   });
 
-  Color _shade(Color c, double factor) {
-    final r = (c.r * 255.0 * factor).clamp(0, 255).round();
-    final g = (c.g * 255.0 * factor).clamp(0, 255).round();
-    final b = (c.b * 255.0 * factor).clamp(0, 255).round();
+  Color _colorFor(String key) {
+    return partColors[key] ??
+        (key.startsWith('free_')
+            ? (partColors['free_default'] ?? const Color(0xFFD6A86C))
+            : const Color(0xFFE2E8F0));
+  }
+
+  Color _rawSolidShade(Color c, double factor) {
+    final r = (c.r * 255.0 * factor).clamp(18, 252).round();
+    final g = (c.g * 255.0 * factor).clamp(18, 252).round();
+    final b = (c.b * 255.0 * factor).clamp(18, 252).round();
     return Color.fromARGB(255, r, g, b);
   }
 
   @override
   void paint(Canvas canvas, Size size) {
-    outFreeBoardHits.clear();
+    outInteractiveHits.clear();
 
     final List<_Box3D> boxes = [];
-    final double t = design.boardThickness;
+    final double t = design.boardThickness.clamp(0.6, 5.0);
     final double bodyH = math.max(10.0, design.height - design.plinthHeight);
-    final double d = design.depth;
+    final double d = math.min(design.depth, math.max(15.0, carcassDepthCm));
 
-    // أجناب خارجية وسقف
+    final carcassCol = _colorFor('carcass');
+    final backCol = _colorFor('back');
+    const rawLineColor = Color(0xFF0F172A);
+
+    // 1. الجنب الأيمن والأيسر والسقف والوزرة (خام بدون تداخل)
     boxes.add(_Box3D(
       x: 0,
       y: 0,
@@ -1584,9 +1849,13 @@ class _Cabinet3DPainter extends CustomPainter {
       w: t,
       h: bodyH,
       d: d,
-      baseColor: const Color(0xFFCBD5E1),
-      strokeColor: const Color(0xFF0F172A),
+      baseColor: carcassCol,
+      strokeColor: rawLineColor,
+      colorKey: 'carcass',
+      partLabel: 'الهيكل الخارجي والوزرة',
+      layerPriority: 0,
     ));
+
     boxes.add(_Box3D(
       x: math.max(t, design.width - t),
       y: 0,
@@ -1594,18 +1863,26 @@ class _Cabinet3DPainter extends CustomPainter {
       w: t,
       h: bodyH,
       d: d,
-      baseColor: const Color(0xFFCBD5E1),
-      strokeColor: const Color(0xFF0F172A),
+      baseColor: carcassCol,
+      strokeColor: rawLineColor,
+      colorKey: 'carcass',
+      partLabel: 'الهيكل الخارجي والوزرة',
+      layerPriority: 0,
     ));
+
+    final double innerSpanW = math.max(2.0, design.width - 2 * t);
     boxes.add(_Box3D(
       x: t,
       y: 0,
       z: 0,
-      w: math.max(4.0, design.width - 2 * t),
+      w: innerSpanW,
       h: t,
       d: d,
-      baseColor: const Color(0xFFE2E8F0),
-      strokeColor: const Color(0xFF0F172A),
+      baseColor: carcassCol,
+      strokeColor: rawLineColor,
+      colorKey: 'carcass',
+      partLabel: 'الهيكل الخارجي والوزرة',
+      layerPriority: 0,
     ));
 
     if (design.plinthHeight > 0) {
@@ -1613,41 +1890,54 @@ class _Cabinet3DPainter extends CustomPainter {
         x: t,
         y: bodyH,
         z: 1.5,
-        w: math.max(4.0, design.width - 2 * t),
+        w: innerSpanW,
         h: design.plinthHeight,
         d: math.max(4.0, d - 3.0),
-        baseColor: const Color(0xFF94A3B8),
-        strokeColor: const Color(0xFF0F172A),
+        baseColor: carcassCol,
+        strokeColor: rawLineColor,
+        colorKey: 'carcass',
+        partLabel: 'الهيكل الخارجي والوزرة',
+        layerPriority: 0,
       ));
     }
 
+    // 2. الظهر في الخلف تماماً (z = 0)
+    final double innerSpanH = math.max(2.0, bodyH - 2 * t);
+    const double backThick = 0.8;
     if (design.hasBackPanel) {
       boxes.add(_Box3D(
         x: t,
         y: t,
         z: 0,
-        w: math.max(4.0, design.width - 2 * t),
-        h: math.max(4.0, bodyH - 2 * t),
-        d: 0.8,
-        baseColor: const Color(0xFF64748B),
-        strokeColor: const Color(0xFF0F172A),
+        w: innerSpanW,
+        h: innerSpanH,
+        d: backThick,
+        baseColor: backCol,
+        strokeColor: rawLineColor,
+        colorKey: 'back',
+        partLabel: 'ظهر الوحدة',
+        layerPriority: 0,
       ));
     }
 
+    // 3. الخانات والقواطيع والأرفف والأدراج والضلف (كل جزء داخل حدود فتحته فقط)
     _collect3DNodeBoxes(
       node: design.root,
+      pathId: "root",
       x: t,
       y: t,
-      z: design.hasBackPanel ? 0.8 : 0.0,
-      w: math.max(5.0, design.width - 2 * t),
-      h: math.max(5.0, bodyH - 2 * t),
-      d: design.hasBackPanel ? math.max(10.0, d - 0.8) : d,
+      z: design.hasBackPanel ? backThick : 0.0,
+      w: innerSpanW,
+      h: innerSpanH,
+      d: design.hasBackPanel ? math.max(8.0, d - backThick) : d,
       bottomBoardY: bodyH - t,
       outBoxes: boxes,
     );
 
+    // 4. القطع الحرة / القرصة
     for (final fb in design.freeBoards) {
       final bool isSel = identical(selectedFreeBoard, fb);
+      final fbKey = 'free_${fb.id}';
       final double fbDepth =
           (fb.kind == FreeBoardKind.shelf || fb.kind == FreeBoardKind.panel)
               ? d
@@ -1661,12 +1951,16 @@ class _Cabinet3DPainter extends CustomPainter {
         x: fb.x,
         y: fb.y,
         z: fbZ,
-        w: fb.width,
-        h: fb.height,
+        w: math.max(1.0, fb.width),
+        h: math.max(1.0, fb.height),
         d: fbDepth,
-        baseColor: isSel ? const Color(0xFF2DD4BF) : const Color(0xFFFBBF24),
-        strokeColor: isSel ? const Color(0xFF042F2E) : const Color(0xFF451A03),
+        baseColor: isSel ? const Color(0xFF2DD4BF) : _colorFor(fbKey),
+        strokeColor: rawLineColor,
+        colorKey: fbKey,
+        partLabel: fb.name,
+        layerPriority: 3,
         freeBoard: fb,
+        interactiveKey: fbKey,
       ));
     }
 
@@ -1679,14 +1973,13 @@ class _Cabinet3DPainter extends CustomPainter {
     final Offset centerOffset = Offset(size.width * 0.5, size.height * 0.52);
     final double cxModel = design.width * 0.5;
     final double cyModel = design.height * 0.5;
-    final double czModel = design.depth * 0.5;
+    final double czModel = d * 0.5;
 
     final double cosY = math.cos(yaw);
     final double sinY = math.sin(yaw);
     final double cosP = math.cos(pitch);
     final double sinP = math.sin(pitch);
 
-    // متجه اتجاه الكاميرا في فضاء النموذج لحساب العمق بدقة
     final double camDirX = sinY * cosP;
     final double camDirY = -sinP;
     final double camDirZ = cosY * cosP;
@@ -1723,6 +2016,7 @@ class _Cabinet3DPainter extends CustomPainter {
       final x0 = b.x, x1 = b.x + b.w;
       final y0 = b.y, y1 = b.y + b.h;
       final z0 = b.z, z1 = b.z + b.d;
+      final isHighlightedKey = selectedColorKey == b.colorKey;
 
       final rawFaces = <({
         List<List<double>> c3d,
@@ -1731,7 +2025,6 @@ class _Cabinet3DPainter extends CustomPainter {
         double nz,
         double shade,
       })>[
-        // أمامي (+Z)
         (
           c3d: [
             [x0, y0, z1],
@@ -1744,7 +2037,6 @@ class _Cabinet3DPainter extends CustomPainter {
           nz: 1,
           shade: 1.0,
         ),
-        // خلفي (-Z)
         (
           c3d: [
             [x1, y0, z0],
@@ -1755,9 +2047,8 @@ class _Cabinet3DPainter extends CustomPainter {
           nx: 0,
           ny: 0,
           nz: -1,
-          shade: 0.72,
+          shade: 0.74,
         ),
-        // يمين (+X)
         (
           c3d: [
             [x1, y0, z1],
@@ -1768,9 +2059,8 @@ class _Cabinet3DPainter extends CustomPainter {
           nx: 1,
           ny: 0,
           nz: 0,
-          shade: 0.85,
+          shade: 0.86,
         ),
-        // يسار (-X)
         (
           c3d: [
             [x0, y0, z0],
@@ -1781,9 +2071,8 @@ class _Cabinet3DPainter extends CustomPainter {
           nx: -1,
           ny: 0,
           nz: 0,
-          shade: 0.80,
+          shade: 0.82,
         ),
-        // علوي (-Y في إحداثيات الشاشة)
         (
           c3d: [
             [x0, y0, z0],
@@ -1794,9 +2083,8 @@ class _Cabinet3DPainter extends CustomPainter {
           nx: 0,
           ny: -1,
           nz: 0,
-          shade: 1.08,
+          shade: 1.06,
         ),
-        // سفلي (+Y)
         (
           c3d: [
             [x0, y1, z1],
@@ -1807,14 +2095,13 @@ class _Cabinet3DPainter extends CustomPainter {
           nx: 0,
           ny: 1,
           nz: 0,
-          shade: 0.68,
+          shade: 0.70,
         ),
       ];
 
       for (final rf in rawFaces) {
-        // إخفاء الأوجه المواجهة للخلف بالنسبة للكاميرا لتجنب التداخل
         final dot = rf.nx * camDirX + rf.ny * camDirY + rf.nz * camDirZ;
-        if (dot <= -0.02) continue;
+        if (dot <= 0.02) continue;
 
         final pts2d = rf.c3d.map((c) => project(c[0], c[1], c[2])).toList();
         final dep = faceDepth(rf.c3d);
@@ -1822,24 +2109,33 @@ class _Cabinet3DPainter extends CustomPainter {
         facesToDraw.add(_Face3D(
           points: pts2d,
           depthFromCamera: dep,
-          fillColor: _shade(b.baseColor, rf.shade),
-          strokeColor: b.strokeColor,
-          strokeWidth: b.freeBoard != null ? 1.8 : 1.1,
+          layerPriority: b.layerPriority,
+          fillColor: _rawSolidShade(b.baseColor, rf.shade),
+          strokeColor:
+              isHighlightedKey ? const Color(0xFFF59E0B) : b.strokeColor,
+          strokeWidth: isHighlightedKey ? 1.6 : 1.15,
+          colorKey: b.colorKey,
+          partLabel: b.partLabel,
           freeBoard: b.freeBoard,
+          interactiveKey: b.interactiveKey,
         ));
 
-        if (b.freeBoard != null) {
-          outFreeBoardHits.add(_FreeBoard3DHit(
-            board: b.freeBoard!,
-            polygon: pts2d,
-            depthFromCamera: dep,
-          ));
-        }
+        outInteractiveHits.add(_InteractiveHit3D(
+          key: b.interactiveKey ?? b.colorKey,
+          colorKey: b.colorKey,
+          partLabel: b.partLabel,
+          freeBoard: b.freeBoard,
+          polygon: pts2d,
+          depthFromCamera: dep,
+        ));
       }
     }
 
-    // رسم الأوجه من الأبعد للأقرب
-    facesToDraw.sort((a, b) => a.depthFromCamera.compareTo(b.depthFromCamera));
+    facesToDraw.sort((a, b) {
+      final dCmp = a.depthFromCamera.compareTo(b.depthFromCamera);
+      if (dCmp.abs() > 0.35) return dCmp;
+      return a.layerPriority.compareTo(b.layerPriority);
+    });
 
     for (final f in facesToDraw) {
       if (f.points.isEmpty) continue;
@@ -1868,6 +2164,7 @@ class _Cabinet3DPainter extends CustomPainter {
 
   void _collect3DNodeBoxes({
     required CabinetZoneNode node,
+    required String pathId,
     required double x,
     required double y,
     required double z,
@@ -1877,13 +2174,17 @@ class _Cabinet3DPainter extends CustomPainter {
     required double bottomBoardY,
     required List<_Box3D> outBoxes,
   }) {
-    final double t = design.boardThickness;
+    final double t = design.boardThickness.clamp(0.6, 5.0);
+    final interiorCol = _colorFor('interior');
+    final frontCol = _colorFor('front');
+    const rawLineColor = Color(0xFF0F172A);
 
     if (node.splitType == SplitType.vertical) {
       final double usableW = math.max(1.0, w - t);
       final double w1 = usableW * node.splitRatio;
-      final double w2 = usableW - w1;
+      final double w2 = math.max(0.5, usableW - w1);
 
+      // قاطوع رأسي داخل حدود الخانة تماماً
       outBoxes.add(_Box3D(
         x: x + w1,
         y: y,
@@ -1891,12 +2192,16 @@ class _Cabinet3DPainter extends CustomPainter {
         w: t,
         h: h,
         d: d,
-        baseColor: const Color(0xFFCBD5E1),
-        strokeColor: const Color(0xFF0F172A),
+        baseColor: interiorCol,
+        strokeColor: rawLineColor,
+        colorKey: 'interior',
+        partLabel: 'الجسم الداخلي والقواطيع',
+        layerPriority: 1,
       ));
 
       _collect3DNodeBoxes(
         node: node.firstChild!,
+        pathId: "${pathId}_1",
         x: x,
         y: y,
         z: z,
@@ -1908,6 +2213,7 @@ class _Cabinet3DPainter extends CustomPainter {
       );
       _collect3DNodeBoxes(
         node: node.secondChild!,
+        pathId: "${pathId}_2",
         x: x + w1 + t,
         y: y,
         z: z,
@@ -1923,8 +2229,9 @@ class _Cabinet3DPainter extends CustomPainter {
     if (node.splitType == SplitType.horizontal) {
       final double usableH = math.max(1.0, h - t);
       final double h1 = usableH * node.splitRatio;
-      final double h2 = usableH - h1;
+      final double h2 = math.max(0.5, usableH - h1);
 
+      // قاطوع أفقي داخل حدود الخانة تماماً
       outBoxes.add(_Box3D(
         x: x,
         y: y + h1,
@@ -1932,12 +2239,16 @@ class _Cabinet3DPainter extends CustomPainter {
         w: w,
         h: t,
         d: d,
-        baseColor: const Color(0xFFCBD5E1),
-        strokeColor: const Color(0xFF0F172A),
+        baseColor: interiorCol,
+        strokeColor: rawLineColor,
+        colorKey: 'interior',
+        partLabel: 'الجسم الداخلي والقواطيع',
+        layerPriority: 1,
       ));
 
       _collect3DNodeBoxes(
         node: node.firstChild!,
+        pathId: "${pathId}_h1",
         x: x,
         y: y,
         z: z,
@@ -1949,6 +2260,7 @@ class _Cabinet3DPainter extends CustomPainter {
       );
       _collect3DNodeBoxes(
         node: node.secondChild!,
+        pathId: "${pathId}_h2",
         x: x,
         y: y + h1 + t,
         z: z,
@@ -1961,6 +2273,7 @@ class _Cabinet3DPainter extends CustomPainter {
       return;
     }
 
+    // أرضية الخانة السفلية (إن لم تكن فراغ مكتب مفتوح)
     if (((y + h) - bottomBoardY).abs() < 4.0 &&
         node.contentType != ZoneContentType.openDeskSpace) {
       outBoxes.add(_Box3D(
@@ -1970,51 +2283,113 @@ class _Cabinet3DPainter extends CustomPainter {
         w: w,
         h: t,
         d: d,
-        baseColor: const Color(0xFFCBD5E1),
-        strokeColor: const Color(0xFF0F172A),
+        baseColor: interiorCol,
+        strokeColor: rawLineColor,
+        colorKey: 'interior',
+        partLabel: 'الجسم الداخلي والقواطيع',
+        layerPriority: 1,
       ));
     }
 
     if (node.contentType == ZoneContentType.shelves && node.itemCount > 0) {
       final double step = h / (node.itemCount + 1);
+      final double shelfH = math.min(t * 0.85, math.max(0.6, step * 0.35));
+      // منع التداخل الجانبي: الرف يبقى داخل عرض الخانة الصافي (x .. x + w)
+      final double shelfX = x + 0.15;
+      final double shelfW = math.max(1.0, w - 0.3);
+
       for (int i = 1; i <= node.itemCount; i++) {
+        final double rawY = y + step * i - shelfH * 0.5;
+        final double safeY = rawY.clamp(y + 0.2, math.max(y + 0.2, y + h - shelfH - 0.2));
         outBoxes.add(_Box3D(
-          x: x,
-          y: y + step * i - t * 0.4,
+          x: shelfX,
+          y: safeY,
           z: z,
-          w: w,
-          h: t * 0.85,
-          d: math.max(4.0, d - 2.0),
-          baseColor: const Color(0xFFE2E8F0),
-          strokeColor: const Color(0xFF1E293B),
+          w: shelfW,
+          h: shelfH,
+          d: math.max(4.0, d - 1.2),
+          baseColor: interiorCol,
+          strokeColor: rawLineColor,
+          colorKey: 'interior',
+          partLabel: 'الجسم الداخلي والأرفف',
+          layerPriority: 1,
         ));
       }
     } else if (node.contentType == ZoneContentType.drawers && node.itemCount > 0) {
       final double dH = h / node.itemCount;
       for (int i = 0; i < node.itemCount; i++) {
+        final key = "drawer_${pathId}_$i";
+        final bool isOpen = openedKeys.contains(key);
+        final double maxSafeSlide = math.max(0.0, d - frontThicknessCm - 1.5);
+        final double slideOut =
+            isOpen ? math.min(maxSafeSlide * 0.5, 12.0) : 0.0;
+        final double boxDepth = math.max(5.0, d - frontThicknessCm - 1.5);
+        final double dy = (y + i * dH + 0.25).clamp(y, math.max(y, y + h - 1.0));
+        final double dhClean =
+            math.max(2.0, math.min(dH - 0.5, (y + h) - dy));
+
+        if (isOpen) {
+          outBoxes.add(_Box3D(
+            x: x + 1.2,
+            y: (dy + 0.8).clamp(y, math.max(y, y + h - 1.0)),
+            z: z + math.max(0.5, d - boxDepth - frontThicknessCm) + slideOut,
+            w: math.max(2.0, w - 2.4),
+            h: math.max(1.5, dhClean - 1.6),
+            d: boxDepth,
+            baseColor: interiorCol,
+            strokeColor: rawLineColor,
+            colorKey: 'interior',
+            partLabel: 'صندوق الدرج الداخلي',
+            layerPriority: 1,
+          ));
+        }
+
         outBoxes.add(_Box3D(
-          x: x + 0.3,
-          y: y + i * dH + 0.3,
-          z: z + math.max(2.0, d - t),
-          w: math.max(2.0, w - 0.6),
-          h: math.max(2.0, dH - 0.6),
-          d: t,
-          baseColor: const Color(0xFF38BDF8),
-          strokeColor: const Color(0xFF0F172A),
+          x: x + 0.25,
+          y: dy,
+          z: z + math.max(0.8, d - frontThicknessCm) + slideOut,
+          w: math.max(2.0, w - 0.5),
+          h: dhClean,
+          d: frontThicknessCm,
+          baseColor: frontCol,
+          strokeColor: rawLineColor,
+          colorKey: 'front',
+          partLabel: 'وش الدرج (${i + 1})',
+          layerPriority: 2,
+          interactiveKey: key,
         ));
       }
     } else if (node.contentType == ZoneContentType.doors && node.itemCount > 0) {
       final double doorW = w / node.itemCount;
       for (int i = 0; i < node.itemCount; i++) {
+        final key = "door_${pathId}_$i";
+        final bool isOpen = openedKeys.contains(key);
+        final double dx = x + i * doorW + 0.25;
+        final double dwClean = math.max(2.0, doorW - 0.5);
+
+        final bool hingeOnLeft = i < (node.itemCount / 2);
+        final double safeOffset = math.min(dwClean * 0.2, 5.0);
+        final double clampedX = isOpen
+            ? (dx + (hingeOnLeft ? -safeOffset : safeOffset))
+                .clamp(x + 0.2, math.max(x + 0.2, x + w - dwClean * 0.72))
+            : dx;
+        final double swingZ = isOpen ? math.min(dwClean * 0.28, 7.0) : 0.0;
+
         outBoxes.add(_Box3D(
-          x: x + i * doorW + 0.3,
-          y: y + 0.3,
-          z: z + math.max(2.0, d - t),
-          w: math.max(2.0, doorW - 0.6),
-          h: math.max(2.0, h - 0.6),
-          d: t,
-          baseColor: const Color(0xFF2DD4BF),
-          strokeColor: const Color(0xFF0F172A),
+          x: clampedX,
+          y: y + 0.25,
+          z: z + math.max(0.8, d - frontThicknessCm) + swingZ * 0.3,
+          w: isOpen ? math.max(2.0, dwClean * 0.72) : dwClean,
+          h: math.max(2.0, h - 0.5),
+          d: isOpen
+              ? math.max(frontThicknessCm, math.min(dwClean * 0.25, 5.5))
+              : frontThicknessCm,
+          baseColor: frontCol,
+          strokeColor: rawLineColor,
+          colorKey: 'front',
+          partLabel: 'ضلفة (${i + 1})',
+          layerPriority: 2,
+          interactiveKey: key,
         ));
       }
     }
@@ -2483,7 +2858,7 @@ class _InteractiveCabinetPainter extends CustomPainter {
     );
   }
 
-  void _drawText(Canvas canvas, String text, Offset center, TextStyle style) {
+    void _drawText(Canvas canvas, String text, Offset center, TextStyle style) {
     final tp = TextPainter(
       text: TextSpan(text: text, style: style),
       textDirection: TextDirection.rtl,

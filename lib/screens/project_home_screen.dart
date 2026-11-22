@@ -69,7 +69,6 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
 
   Widget _buildUnitPreviewBox(ConfiguredUnit unit, {required double height}) {
     final bool isWallHanging = unit.preset.category == MainCategory.kitchenWall &&
-        unit.preset.kind != UnitTemplateKind.applianceTower &&
         unit.preset.id != 'kw_tall';
 
     return Container(
@@ -118,20 +117,11 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
   void _openUnitConfigurator(UnitPreset preset) {
     int qty = 1;
     double w = preset.defaultW;
-    double w2 = preset.defaultW2;
     double h = preset.defaultH;
     double d = preset.defaultD;
-    double d2 = preset.defaultD2;
     int shelves = preset.defaultShelves;
     int doors = preset.defaultDoors;
     int drawers = preset.defaultDrawers;
-    double drawerH = preset.defaultDrawerH;
-    int innerDrawers = preset.defaultInnerDrawers;
-    double innerDrawerH = preset.defaultInnerDrawerH;
-    double lowerDoorH = preset.defaultLowerDoorH;
-    double ovenH = preset.defaultOvenH;
-    double microwaveH = preset.defaultMicrowaveH;
-    double hoodH = preset.defaultHoodH;
 
     HandleType handle = HandleType.builtIn;
     FrontMountType frontMount = FrontMountType.fullOverlay;
@@ -142,42 +132,30 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
     double boardThickness = 1.8;
     double clearance = 0.3;
     double gProfileDeduct = 3.5;
+    double shelfSetback = 2.5;
+    double backGrooveAdd = 1.7;
     const String carcassMat = "شاسيه أبيض";
     const String doorMat = "لون الضلفة الأساسي";
 
     final wCtrl = TextEditingController(text: w.toStringAsFixed(0));
-    final w2Ctrl = TextEditingController(text: w2.toStringAsFixed(0));
     final hCtrl = TextEditingController(text: h.toStringAsFixed(0));
     final dCtrl = TextEditingController(text: d.toStringAsFixed(0));
-    final d2Ctrl = TextEditingController(text: d2.toStringAsFixed(0));
-    final drawerHCtrl = TextEditingController(text: drawerH.toStringAsFixed(0));
-    final innerDrawersCtrl = TextEditingController(text: innerDrawers.toString());
-    final innerDrawerHCtrl = TextEditingController(text: innerDrawerH.toStringAsFixed(0));
-    final lowerDoorHCtrl = TextEditingController(text: lowerDoorH.toStringAsFixed(0));
-    final ovenHCtrl = TextEditingController(text: ovenH.toStringAsFixed(0));
-    final microwaveHCtrl = TextEditingController(text: microwaveH.toStringAsFixed(0));
-    final hoodHCtrl = TextEditingController(text: hoodH.toStringAsFixed(0));
     final thickCtrl = TextEditingController(text: boardThickness.toString());
     final clearanceCtrl = TextEditingController(text: clearance.toString());
     final gProfileCtrl = TextEditingController(text: gProfileDeduct.toString());
+    final shelfSetbackCtrl = TextEditingController(text: shelfSetback.toString());
+    final backGrooveCtrl = TextEditingController(text: backGrooveAdd.toString());
 
     void disposeDialogCtrls() {
       for (final c in [
         wCtrl,
-        w2Ctrl,
         hCtrl,
         dCtrl,
-        d2Ctrl,
-        drawerHCtrl,
-        innerDrawersCtrl,
-        innerDrawerHCtrl,
-        lowerDoorHCtrl,
-        ovenHCtrl,
-        microwaveHCtrl,
-        hoodHCtrl,
         thickCtrl,
         clearanceCtrl,
         gProfileCtrl,
+        shelfSetbackCtrl,
+        backGrooveCtrl,
       ]) {
         c.dispose();
       }
@@ -192,20 +170,11 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
             preset: preset,
             quantity: qty,
             width: w,
-            width2: w2,
             height: h,
             depth: d,
-            depth2: d2,
             shelvesCount: shelves,
             doorsCount: doors,
             drawersCount: drawers,
-            drawerHeightCm: drawerH,
-            innerDrawersCount: innerDrawers,
-            innerDrawerHeightCm: innerDrawerH,
-            lowerDoorHeightCm: lowerDoorH,
-            ovenHeightCm: ovenH,
-            microwaveHeightCm: microwaveH,
-            hoodHeightCm: hoodH,
             handleType: handle,
             frontMount: frontMount,
             carcassMaterial: carcassMat,
@@ -217,17 +186,15 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
             boardThickness: boardThickness,
             clearanceCm: clearance,
             gProfileDeductCm: gProfileDeduct,
+            shelfSetbackCm: shelfSetback,
+            backGrooveAddCm: backGrooveAdd,
           );
-
-          final bool isCorner = preset.kind == UnitTemplateKind.cornerL || preset.isCornerL;
-          final bool isDrawers = preset.kind == UnitTemplateKind.drawersLower;
-          final bool isAppliance = preset.kind == UnitTemplateKind.applianceTower;
 
           return Dialog(
             backgroundColor: const Color(0xFF161F30),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: Container(
-              width: 680,
+              width: 660,
               constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.9),
               padding: const EdgeInsets.all(20),
               child: Column(
@@ -256,67 +223,27 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
                         children: [
                           _buildUnitPreviewBox(previewUnit, height: 210),
                           const SizedBox(height: 16),
-                          if (isCorner) ...[
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildNumberInput("العرض 1 (سم)", wCtrl, (val) {
-                                    setDialogState(() => w = double.tryParse(val) ?? w);
-                                  }),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _buildNumberInput("العرض 2 (سم)", w2Ctrl, (val) {
-                                    setDialogState(() => w2 = double.tryParse(val) ?? w2);
-                                  }),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _buildNumberInput("الارتفاع (سم)", hCtrl, (val) {
-                                    setDialogState(() => h = double.tryParse(val) ?? h);
-                                  }),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildNumberInput("العمق 1 (سم)", dCtrl, (val) {
-                                    setDialogState(() => d = double.tryParse(val) ?? d);
-                                  }),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _buildNumberInput("العمق 2 (سم - اختياري)", d2Ctrl, (val) {
-                                    setDialogState(() => d2 = double.tryParse(val) ?? d2);
-                                  }),
-                                ),
-                              ],
-                            ),
-                          ] else ...[
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildNumberInput("العرض (سم)", wCtrl, (val) {
-                                    setDialogState(() => w = double.tryParse(val) ?? w);
-                                  }),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _buildNumberInput("الارتفاع (سم)", hCtrl, (val) {
-                                    setDialogState(() => h = double.tryParse(val) ?? h);
-                                  }),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _buildNumberInput("العمق (سم)", dCtrl, (val) {
-                                    setDialogState(() => d = double.tryParse(val) ?? d);
-                                  }),
-                                ),
-                              ],
-                            ),
-                          ],
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildNumberInput("العرض (سم)", wCtrl, (val) {
+                                  setDialogState(() => w = double.tryParse(val) ?? w);
+                                }),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _buildNumberInput("الارتفاع (سم)", hCtrl, (val) {
+                                  setDialogState(() => h = double.tryParse(val) ?? h);
+                                }),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _buildNumberInput("العمق (سم)", dCtrl, (val) {
+                                  setDialogState(() => d = double.tryParse(val) ?? d);
+                                }),
+                              ),
+                            ],
+                          ),
                           const SizedBox(height: 14),
                           Row(
                             children: [
@@ -330,64 +257,6 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
                               Expanded(child: _buildCounter("الأدراج", drawers, (v) => setDialogState(() => drawers = v))),
                             ],
                           ),
-                          if (isDrawers) ...[
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildNumberInput("ارتفاع الدرج (سم)", drawerHCtrl, (val) {
-                                    setDialogState(() => drawerH = double.tryParse(val) ?? drawerH);
-                                  }),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _buildNumberInput("عدد الأدراج المخفية", innerDrawersCtrl, (val) {
-                                    setDialogState(() => innerDrawers = int.tryParse(val) ?? innerDrawers);
-                                  }),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _buildNumberInput("ارتفاع الدرج المخفي (سم)", innerDrawerHCtrl, (val) {
-                                    setDialogState(() => innerDrawerH = double.tryParse(val) ?? innerDrawerH);
-                                  }),
-                                ),
-                              ],
-                            ),
-                          ],
-                          if (isAppliance) ...[
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildNumberInput("ارتفاع الضلفة السفلية (سم)", lowerDoorHCtrl, (val) {
-                                    setDialogState(() => lowerDoorH = double.tryParse(val) ?? lowerDoorH);
-                                  }),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _buildNumberInput("ارتفاع الفرن (سم)", ovenHCtrl, (val) {
-                                    setDialogState(() => ovenH = double.tryParse(val) ?? ovenH);
-                                  }),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildNumberInput("ارتفاع الميكروويف (سم)", microwaveHCtrl, (val) {
-                                    setDialogState(() => microwaveH = double.tryParse(val) ?? microwaveH);
-                                  }),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _buildNumberInput("ارتفاع الشفاط (سم)", hoodHCtrl, (val) {
-                                    setDialogState(() => hoodH = double.tryParse(val) ?? hoodH);
-                                  }),
-                                ),
-                              ],
-                            ),
-                          ],
                           const SizedBox(height: 16),
                           Row(
                             children: [
@@ -486,6 +355,26 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
                                 child: _buildNumberInput("خصم عود البيلت إن (سم)", gProfileCtrl, (val) {
                                   setDialogState(() {
                                     gProfileDeduct = double.tryParse(val) ?? gProfileDeduct;
+                                  });
+                                }),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildNumberInput("خصم عمق الرف (سم)", shelfSetbackCtrl, (val) {
+                                  setDialogState(() {
+                                    shelfSetback = double.tryParse(val) ?? shelfSetback;
+                                  });
+                                }),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _buildNumberInput("زيادة مفحار الظهر (سم)", backGrooveCtrl, (val) {
+                                  setDialogState(() {
+                                    backGrooveAdd = double.tryParse(val) ?? backGrooveAdd;
                                   });
                                 }),
                               ),
@@ -729,7 +618,7 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
                           controller: _searchCtrl,
                           onChanged: (v) => setState(() => _searchQuery = v),
                           decoration: InputDecoration(
-                            hintText: "ابحث عن أي وحدة (ركنة، أجهزة، صفاية...)",
+                            hintText: "ابحث عن أي وحدة (مطبقية، أدراج، مكتب...)",
                             hintStyle: const TextStyle(fontSize: 12, color: Colors.white38),
                             prefixIcon: const Icon(Icons.search, color: Color(0xFF2DD4BF), size: 20),
                             suffixIcon: _searchQuery.isNotEmpty
@@ -812,9 +701,7 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
                                             ),
                                             const SizedBox(height: 4),
                                             Text(
-                                              (preset.kind == UnitTemplateKind.cornerL || preset.isCornerL)
-                                                  ? "${preset.defaultW.toInt()}×${preset.defaultW2.toInt()}×${preset.defaultH.toInt()} سم"
-                                                  : "${preset.defaultW.toInt()} × ${preset.defaultH.toInt()} × ${preset.defaultD.toInt()} سم",
+                                              "${preset.defaultW.toInt()} × ${preset.defaultH.toInt()} × ${preset.defaultD.toInt()} سم",
                                               style: const TextStyle(color: Colors.white54, fontSize: 11),
                                             ),
                                           ],
@@ -1092,7 +979,7 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
                     final parts = u.generateCutList(unitIndex++);
                     for (final p in parts) {
                       final pName = p['partName'] as String;
-                      if (pName.startsWith('رف داخلي') || pName.startsWith('رف / فاصل')) {
+                      if (pName.startsWith('رف داخلي')) {
                         p['material'] = shelfMat;
                       } else if (pName.startsWith('ظهر')) {
                         p['material'] = backMat;
@@ -1228,7 +1115,15 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
 
   void _showConfiguredUnitDetails(ConfiguredUnit unit, int unitNumber) {
     final thickEditCtrl = TextEditingController(text: unit.boardThickness.toString());
+    final setbackEditCtrl = TextEditingController(text: unit.shelfSetbackCm.toString());
+    final grooveEditCtrl = TextEditingController(text: unit.backGrooveAddCm.toString());
     int? expandedPartIndex;
+
+    void disposeDetailsCtrls() {
+      thickEditCtrl.dispose();
+      setbackEditCtrl.dispose();
+      grooveEditCtrl.dispose();
+    }
 
     showDialog(
       context: context,
@@ -1239,7 +1134,7 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
             backgroundColor: const Color(0xFF161F30),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: Container(
-              width: 720,
+              width: 740,
               constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.88),
               padding: const EdgeInsets.all(20),
               child: Column(
@@ -1257,7 +1152,7 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
                       IconButton(
                         icon: const Icon(Icons.close, color: Colors.white70),
                         onPressed: () {
-                          thickEditCtrl.dispose();
+                          disposeDetailsCtrls();
                           Navigator.pop(ctx);
                         },
                       ),
@@ -1270,36 +1165,43 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
                     children: [
                       _infoPill("الأبعاد: ${unit.width.toStringAsFixed(0)} × ${unit.height.toStringAsFixed(0)} × ${unit.depth.toStringAsFixed(0)} سم"),
                       _infoPill("التخانة: ${unit.boardThickness} سم"),
+                      _infoPill("خصم الرف: ${unit.shelfSetbackCm} سم | مفحار الظهر: ${unit.backGrooveAddCm} سم"),
                       _infoPill("الأرفف: ${unit.shelvesCount} | الضلف: ${unit.doorsCount} | الأدراج: ${unit.drawersCount}"),
                       _infoPill("إجمالي البنود: ${currentParts.length}"),
                     ],
                   ),
                   const SizedBox(height: 12),
-                  Row(
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 10,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      const Text("عدد الوحدات (الكمية):", style: TextStyle(fontSize: 13, color: Colors.white70)),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        onPressed: unit.quantity > 1
-                            ? () {
-                                setDlgState(() => unit.quantity--);
-                                setState(() {});
-                              }
-                            : null,
-                        icon: const Icon(Icons.remove_circle_outline),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text("الكمية:", style: TextStyle(fontSize: 13, color: Colors.white70)),
+                          IconButton(
+                            onPressed: unit.quantity > 1
+                                ? () {
+                                    setDlgState(() => unit.quantity--);
+                                    setState(() {});
+                                  }
+                                : null,
+                            icon: const Icon(Icons.remove_circle_outline),
+                          ),
+                          Text("${unit.quantity}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          IconButton(
+                            onPressed: () {
+                              setDlgState(() => unit.quantity++);
+                              setState(() {});
+                            },
+                            icon: const Icon(Icons.add_circle_outline, color: Color(0xFF2DD4BF)),
+                          ),
+                        ],
                       ),
-                      Text("${unit.quantity}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      IconButton(
-                        onPressed: () {
-                          setDlgState(() => unit.quantity++);
-                          setState(() {});
-                        },
-                        icon: const Icon(Icons.add_circle_outline, color: Color(0xFF2DD4BF)),
-                      ),
-                      const SizedBox(width: 20),
                       SizedBox(
-                        width: 195,
-                        child: _buildNumberInput("تعديل التخانة لحظياً (سم)", thickEditCtrl, (val) {
+                        width: 170,
+                        child: _buildNumberInput("تعديل التخانة (سم)", thickEditCtrl, (val) {
                           final parsed = double.tryParse(val);
                           if (parsed != null && parsed > 0) {
                             setDlgState(() => unit.boardThickness = parsed);
@@ -1307,9 +1209,29 @@ class _ProjectHomeScreenState extends State<ProjectHomeScreen> {
                           }
                         }),
                       ),
+                      SizedBox(
+                        width: 165,
+                        child: _buildNumberInput("خصم عمق الرف (سم)", setbackEditCtrl, (val) {
+                          final parsed = double.tryParse(val);
+                          if (parsed != null && parsed >= 0) {
+                            setDlgState(() => unit.shelfSetbackCm = parsed);
+                            setState(() {});
+                          }
+                        }),
+                      ),
+                      SizedBox(
+                        width: 175,
+                        child: _buildNumberInput("مفحار الظهر (سم)", grooveEditCtrl, (val) {
+                          final parsed = double.tryParse(val);
+                          if (parsed != null && parsed >= 0) {
+                            setDlgState(() => unit.backGrooveAddCm = parsed);
+                            setState(() {});
+                          }
+                        }),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   const Text(
                     "قطع التقطيع الخاصة بهذه الوحدة (اضغط على أي مقاس لعرض طريقة حسابه):",
                     style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2DD4BF), fontSize: 13),
